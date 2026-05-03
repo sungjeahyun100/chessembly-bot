@@ -63,7 +63,9 @@ pub mod game_logic {
             if self.is_terminal() {
                 return match self.status() {
                     // 현재 플레이어가 체크메이트 당함 (최악의 점수)
-                    BoardStatus::Checkmate => -1_000_000,
+                    BoardStatus::Checkmate => {
+                        -1_000_000
+                    },
                     // 무승부
                     BoardStatus::Stalemate => 0,
                     _ => 0,
@@ -160,11 +162,15 @@ pub mod game_logic {
     }
 }
 
+
 // -----------------------------------------------------------------------------
 // 모듈 2: 알파-베타 검색 (네가맥스 구현)
 // -----------------------------------------------------------------------------
 pub mod search {
+    pub static mut BRANCH_COUNT: usize = 0;
     use rand::seq::SliceRandom;
+
+    use crate::chessembly::DeltaPosition;
 
     use super::game_logic::GameState;
 
@@ -252,6 +258,10 @@ pub mod search {
             return Err(260);
         }
 
+        unsafe {
+            BRANCH_COUNT = 0;
+        }
+
         let mut best_move = None;
         let mut best_score = -i32::MAX;
         let mut alpha = -i32::MAX;
@@ -277,7 +287,7 @@ pub mod search {
             // 정렬된 리스트를 사용합니다.
             let mut new_state = state.make_move(&m);
 
-            let score = -negamax(&mut new_state, depth - 1, -beta, -alpha);
+            let score = -negamax(&mut new_state, depth - 1, 15, -beta, -alpha);
 
             if score > best_score {
                 best_score = score;
@@ -286,12 +296,22 @@ pub mod search {
             alpha = alpha.max(best_score);
         }
 
+        unsafe {
+            println!("branches: {}", BRANCH_COUNT);
+        }
+
         best_move.map(|m| (m, best_score)).ok_or(n)
     }
 
-    fn negamax<S: GameState>(state: &mut S, depth: u8, mut alpha: i32, beta: i32) -> i32 {
-        if depth == 0 || state.is_terminal() {
+    fn negamax<S: GameState>(state: &mut S, depth: u8, hard_depth: u8, mut alpha: i32, beta: i32) -> i32 {
+        if depth == 0 || hard_depth == 0 || state.is_terminal() {
             return state.evaluate();
+        }
+
+        let damper = 0.9;
+
+        unsafe {
+            BRANCH_COUNT += 1;
         }
 
         let mut value = -i32::MAX;
@@ -303,13 +323,27 @@ pub mod search {
         // moves.sort_unstable_by(|a, b| state.score_move(b).cmp(&state.score_move(a)));
         moves.sort_unstable_by(|a, b| b.0.cmp(&a.0));
         // --- (끝) ---
+        
+        let mut i = 0;
+        let mut next_depth = if moves.len() < 5 {
+            depth
+        } else {
+            depth - 1
+        };
 
         for (_, m) in moves {
             // 정렬된 리스트를 사용합니다.
             let mut new_state = state.make_move(&m);
-            let score = -negamax(&mut new_state, depth - 1, -beta, -alpha);
+            let score = -negamax(&mut new_state, next_depth, hard_depth - 1, -beta, -alpha);
             value = value.max(score);
             alpha = alpha.max(value);
+            
+            if i < 4 {
+                i += 1;
+                if i == 4 {
+                    next_depth = depth - 1;
+                }
+            }
             if alpha >= beta {
                 // (이것이 킬러 수(Killer Move)가 됩니다.
                 // TODO: 'm'을 킬러 수 테이블에 저장)
@@ -319,8 +353,76 @@ pub mod search {
 
         // worker::console_log!("{}", score);
 
-        value
+        (value as f32 * damper) as i32
     }
+
+    // use std::collections::VecDeque;
+
+    // struct BFSNode<S> {
+    //     state: S,
+    //     value: i32,
+    //     parent_index: usize,
+    //     is_terminal: bool
+    // }
+
+    // fn bfs<S: GameState>(root: &mut S, mut alpha: i32, beta: i32) -> i32 {
+    //     let mut n = 300;
+        
+    //     let mut state_data = vec![BFSNode {
+    //         state: root.clone(),
+    //         value: -i32::MAX,
+    //         parent_index: 0,
+    //         is_terminal: true
+    //     }];
+    //     let mut queue = VecDeque::new();
+
+    //     queue.push_back(0);
+
+    //     while n > 0 && !queue.is_empty() {
+    //         let node_idx = queue.pop_front().unwrap();
+    //         // state_data.split
+    //         let (st1, st2) = state_data.split_at_mut(node_idx);
+    //         let state_node = &mut st2[0];
+
+    //         if !st1.is_empty() {
+    //             st1[state_node.parent_index].is_terminal = false;
+    //         }
+    //         else {
+    //             state_node.is_terminal = false;
+    //         }
+
+    //         let mut moves: Vec<_> = state_node.state.get_legal_moves().into_iter().map(|node| (state_node.state.score_move(&node), node)).collect();
+    //         // pop하기 위해서 정렬을 거꾸로
+    //         moves.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+
+    //         while !moves.is_empty() {
+    //             state_data.push(BFSNode {
+    //                 state: state_node.state.make_move(&moves.pop().unwrap().1),
+    //                 value: -i32::MAX,
+    //                 parent_index: node_idx,
+    //                 is_terminal: true
+    //             });
+    //             queue.push_back(state_data.len() - 1);
+    //         }
+            
+    //         // for (_, m) in moves {
+    //         //     // 정렬된 리스트를 사용합니다.
+    //         //     let mut new_state = state.make_move(&m);
+    //         //     let score = -negamax(&mut new_state, depth - 1, -beta, -alpha);
+    //         //     value = value.max(score);
+    //         //     alpha = alpha.max(value);
+    //         //     if alpha >= beta {
+    //         //         // (이것이 킬러 수(Killer Move)가 됩니다.
+    //         //         // TODO: 'm'을 킬러 수 테이블에 저장)
+    //         //         break; // Beta Cut-off
+    //         //     }
+    //         // }
+
+
+    //         n -= 1;
+    //     }
+    //     0
+    // }
 }
 
 // -----------------------------------------------------------------------------
