@@ -167,10 +167,7 @@ pub mod game_logic {
 // 모듈 2: 알파-베타 검색 (네가맥스 구현)
 // -----------------------------------------------------------------------------
 pub mod search {
-    pub static mut BRANCH_COUNT: usize = 0;
     use rand::seq::SliceRandom;
-
-    use crate::chessembly::DeltaPosition;
 
     use super::game_logic::GameState;
 
@@ -258,10 +255,6 @@ pub mod search {
             return Err(260);
         }
 
-        unsafe {
-            BRANCH_COUNT = 0;
-        }
-
         let mut best_move = None;
         let mut best_score = -i32::MAX;
         let mut alpha = -i32::MAX;
@@ -296,10 +289,6 @@ pub mod search {
             alpha = alpha.max(best_score);
         }
 
-        unsafe {
-            println!("branches: {}", BRANCH_COUNT);
-        }
-
         best_move.map(|m| (m, best_score)).ok_or(n)
     }
 
@@ -309,10 +298,6 @@ pub mod search {
         }
 
         let damper = 0.9;
-
-        unsafe {
-            BRANCH_COUNT += 1;
-        }
 
         let mut value = -i32::MAX;
 
