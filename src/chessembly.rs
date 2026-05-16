@@ -317,6 +317,7 @@ impl<'a> ChessemblyCompiled<'a> {
 
     pub fn is_check_dbg<const MACHO: bool, const IMPRISONED: bool, const SIZE: usize>(&self, board: &mut Board<MACHO, IMPRISONED, SIZE>, color: Color) -> bool {
         let danger_zones = MoveGen::get_danger_zones::<MACHO, IMPRISONED, SIZE>(board, color);
+        println!("------------------------ {:?}", color.invert());
         for i in 0..8 {
             let mut x = String::new();
             for j in 0..8 {
@@ -342,10 +343,19 @@ impl<'a> ChessemblyCompiled<'a> {
                     );
                 }
             }
+            println!("{}", x);
         }
-        danger_zones
+        let ret = danger_zones
             .iter()
-            .any(|x| board.piece_on(x) == Some("king"))
+            .any(|x| board.piece_on(x) == Some("king"));
+
+        if ret {
+            println!("==================> Check!")
+        }
+        else {
+            println!("==================> OK")
+        }
+        ret
     }
 
     pub fn push_node(nodes: &mut Vec<ChessMove<'a>>, node: ChessMove<'a>) {
@@ -574,6 +584,22 @@ impl<'a> ChessemblyCompiled<'a> {
                         }
                         rip += 1;
                     }
+                    Behavior::Color(color_name) => {
+                        if let Some(color) = board.color_on(position) {
+                            if color_name == "white" {
+                                *states.last_mut().unwrap() = color == Color::White;
+                            }
+                            else if color_name == "black" {
+                                *states.last_mut().unwrap() = color == Color::Black;
+                            }
+                            else {
+                                *states.last_mut().unwrap() = false;
+                            }
+                        } else {
+                            *states.last_mut().unwrap() = false;
+                        }
+                        rip += 1;
+                    }
                     Behavior::Bound(delta) => {
                         let wc = ChessemblyCompiled::wall_collision(
                             &stack.last().unwrap().0,
@@ -792,6 +818,29 @@ impl<'a> ChessemblyCompiled<'a> {
                         }
                         *states.last_mut().unwrap() =
                             board.piece_on(&stack.last().unwrap().0) == Some(&piece_name[..]);
+                        ChessemblyCompiled::cancel_move_anchor(
+                            &mut stack.last_mut().unwrap().0,
+                            &delta,
+                        );
+                        rip += 1;
+                    }
+                    Behavior::ColorOn((color_name, delta)) => {
+                        let wc = ChessemblyCompiled::move_anchor(
+                            &mut stack.last_mut().unwrap().0,
+                            &delta,
+                            board,
+                            board.color_on(position).unwrap(),
+                        );
+                        if wc != WallCollision::NoCollision {
+                            *states.last_mut().unwrap() = false;
+                            rip += 1;
+                            continue;
+                        }
+                        *states.last_mut().unwrap() = if let Some(color) = board.color_on(&stack.last().unwrap().0) {
+                            if color_name == "white" { color == Color::White }
+                            else if color_name == "black" { color == Color::Black }
+                            else { false }
+                        } else { false };
                         ChessemblyCompiled::cancel_move_anchor(
                             &mut stack.last_mut().unwrap().0,
                             &delta,
@@ -1206,8 +1255,9 @@ impl<'a> ChessemblyCompiled<'a> {
         else {
             for testnode in nodes {
                 let mut new_board = board.make_move_new_nc(&testnode, false);
-                let turn = new_board.turn.invert();
-                if !self.is_check::<MACHO, IMPRISONED, SIZE>(&mut new_board, turn) {
+                let turn = new_board.turn;
+                new_board.turn = new_board.turn.invert();
+                if !self.is_check::<MACHO, IMPRISONED, SIZE>(&mut new_board, turn.invert()) {
                     ret.push(testnode);
                 }
             }

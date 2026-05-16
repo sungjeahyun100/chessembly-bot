@@ -37,10 +37,16 @@ pub enum Behavior<'a> {
     Enemy(DeltaPosition),
     Friendly(DeltaPosition),
     PieceOn((&'a str, DeltaPosition)),
+    ColorOn((&'a str, DeltaPosition)),
     SetState((&'a str, u8)),
     IfState((&'a str, u8)),
     Transition(&'a str),
-    Piece(String),
+    Piece(&'a str),
+    Color(&'a str),
+    // True,
+    // False,
+    // StoreResult(u8),
+    // UseResult(u8),
 }
 
 pub type BehaviorChain<'a> = Vec<Behavior<'a>>;
@@ -106,13 +112,19 @@ impl<'a> Behavior<'a> {
             );
         } else if cmd == "transition" {
             return Behavior::Transition(params_vec.get(0).unwrap_or(&""));
+        } else if cmd == "color" {
+            return Behavior::Color(params_vec.get(0).unwrap_or(&""));
         } else if cmd == "piece" {
-            return Behavior::Piece(
-                params_vec
-                    .get(0)
-                    .map(|s| String::from(*s))
-                    .unwrap_or(String::new()),
-            );
+            return Behavior::Piece(params_vec.get(0).unwrap_or(&""));
+            
+            // ??
+
+            // return Behavior::Piece(
+            //     params_vec
+            //         .get(0)
+            //         .map(|s| String::from(*s))
+            //         .unwrap_or(String::new()),
+            // );
         } else if cmd == "set-state" {
             return Behavior::SetState((
                 params_vec.get(0).unwrap_or(&""),
@@ -131,6 +143,20 @@ impl<'a> Behavior<'a> {
             ));
         } else if cmd == "piece-on" {
             return Behavior::PieceOn((
+                params_vec.get(0).unwrap_or(&""),
+                (
+                    params_vec
+                        .get(1)
+                        .map(|s| s.parse::<i8>().unwrap_or(0))
+                        .unwrap_or(0),
+                    params_vec
+                        .get(2)
+                        .map(|s| s.parse::<i8>().unwrap_or(0))
+                        .unwrap_or(0),
+                ),
+            ));
+        } else if cmd == "color-on" {
+            return Behavior::ColorOn((
                 params_vec.get(0).unwrap_or(&""),
                 (
                     params_vec

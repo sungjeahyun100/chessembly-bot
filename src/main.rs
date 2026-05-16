@@ -89,13 +89,15 @@ async fn run_engine(headers: HeaderMap) -> impl IntoResponse {
         return (StatusCode::OK, "asdf").into_response();
     };
     
-    let Ok(depth) = depth_header_str.to_str().map(|x| x.parse::<u8>().unwrap_or(3)) else {
+    let Ok(_depth) = depth_header_str.to_str().map(|x| x.parse::<u8>().unwrap_or(3)) else {
         return (StatusCode::OK, "asdf").into_response();
     };
     
-    if depth <= 0 || depth > 4 {
+    if _depth <= 1 || _depth > 4 {
         return (StatusCode::OK, "asdf").into_response();
     }
+
+    let depth = 1;
 
     let Ok(str_script) = script.to_str().map(|x| urlencoding::decode(x).expect("UTF-8")) else {
         return (StatusCode::OK, "asdf").into_response();
@@ -233,6 +235,7 @@ async fn run_engine(headers: HeaderMap) -> impl IntoResponse {
         }
     };
 
+    
     if let Ok(node) = best_move {
         return (StatusCode::OK, Json(node)).into_response();
     } else if let Err(_) = best_move {
