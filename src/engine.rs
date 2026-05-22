@@ -63,7 +63,7 @@ pub mod game_logic {
         /// SEE (Static Exchange Evaluation) 점수를 반환합니다.
         /// 양수/0: 유리하거나 동등한 교환, 음수: 손해 교환.
         /// 기본값 `i32::MAX`는 항상 탐색 (SEE 프루닝 비활성).
-        fn see_move(&self, _m: &Self::Move) -> i32 { i32::MAX }
+        fn static_exchange_evaluation_move(&self, _m: &Self::Move) -> i32 { i32::MAX }
     }
 
     // -------------------------------------------------------------------------
@@ -72,7 +72,6 @@ pub mod game_logic {
     // -------------------------------------------------------------------------
     impl<'a, const MACHO: bool, const IMPRISONED: bool> Board<'a, MACHO, IMPRISONED, 8> {
 
-        // --- 1. 재료(Material) 평가 -------------------------------------------
         /// 모든 기물의 센티폰 가치 합산. 반환값: 백 절대 시점 (양수 = 백 우세).
         fn evaluate_material(&self) -> i32 {
             let mut score = 0;
@@ -93,7 +92,6 @@ pub mod game_logic {
             score
         }
 
-        // --- 3. 킹 안전 평가 ---------------------------------------------------
         /// 폰 쉴드 보너스 + 중앙 배치 패널티. 반환값: 백 절대 시점.
         fn evaluate_king_safety(&self) -> i32 {
             let mut score = 0;
@@ -110,30 +108,28 @@ pub mod game_logic {
             score
         }
 
-        // --- 5. 패스트 폰(Passed Pawn) 평가 -----------------------------------
         /// 전방에 적 폰이 없는 폰에 랭크 기반 보너스. 반환값: 백 절대 시점.
         fn evaluate_passed_pawns(&self) -> i32 {
             let mut score = 0;
             for x in 0..8u8 {
                 for y in 0..8u8 {
                     if self.piece_on(&(x, y)) != Some("pawn") { continue; }
-                    let is_white = self.color_on(&(x, y)) == Some(Color::White);
-                    if self.is_passed_pawn(x, y, is_white) {
+                    let Some(color) = self.color_on(&(x, y)) else { continue; };
+                    if self.is_passed_pawn(x, y, color) {
                         // 홈 랭크 기준 전진 수: 백 홈=y6, 흑 홈=y1
-                        let ranks_advanced = if is_white {
+                        let ranks_advanced = if color == Color::White {
                             6u8.saturating_sub(y)
                         } else {
                             y.saturating_sub(1)
                         };
                         let bonus = heuristics::passed_pawn_rank_bonus(ranks_advanced);
-                        if is_white { score += bonus; } else { score -= bonus; }
+                        if color == Color::White { score += bonus; } else { score -= bonus; }
                     }
                 }
             }
             score
         }
 
-        // --- 6. 센터 컨트롤 평가 -----------------------------------------------
         /// d4/e4/d5/e5 점령 보너스. 반환값: 백 절대 시점.
         fn evaluate_center_control(&self) -> i32 {
             let mut score = 0;
@@ -148,13 +144,13 @@ pub mod game_logic {
             score
         }
 
-        // --- 최종 합산 ----------------------------------------------------------
         /// 위 6개 함수를 합산한 보드 점수 (백 절대 시점).
         fn evaluate_board(&mut self) -> i32 {
-            let material    = self.evaluate_material();
-            let king_safety = self.evaluate_king_safety();
-            let passed      = self.evaluate_passed_pawns();
-            let center      = self.evaluate_center_control();
+            //1 부분이 각 휴리스틱의 가중치
+            let material    = 1 * self.evaluate_material();
+            let king_safety = 1 * self.evaluate_king_safety();
+            let passed      = 1 * self.evaluate_passed_pawns();
+            let center      = 1 * self.evaluate_center_control();
             material + king_safety + passed + center
         }
 
@@ -194,12 +190,11 @@ pub mod game_logic {
         }
 
         /// 전방 파일(px-1..=px+1)에 적 폰이 없으면 패스트 폰으로 판정.
-        fn is_passed_pawn(&self, px: u8, py: u8, is_white: bool) -> bool {
-            let enemy = if is_white { Color::Black } else { Color::White };
-            let (y_start, y_end): (u8, u8) = if is_white {
-                (0, py.saturating_sub(1))
-            } else {
-                (py + 1, 7)
+        fn is_passed_pawn(&self, px: u8, py: u8, color: Color) -> bool {
+            let enemy = color.invert();
+            let (y_start, y_end): (u8, u8) = match color {
+                Color::White => (0, py.saturating_sub(1)),
+                Color::Black => (py + 1, 7),
             };
             // y_start > y_end 이면 범위가 비어 루프를 돌지 않습니다(u8 안전).
             if y_start > y_end { return true; }
@@ -301,9 +296,9 @@ pub mod game_logic {
 
         /// Static Exchange Evaluation: `from` → `to` 캡처 교환 시퀀스의 재료 손익을 계산합니다.
         /// 양수 = 유리, 0 = 동등, 음수 = 불리. X-ray 없는 간이 구현.
-        fn see(&self, from: (u8, u8), to: (u8, u8)) -> i32 {
+        fn static_exchange_evaluation(&self, from: (u8, u8), to: (u8, u8)) -> i32 {
             let Some(our_color) = self.color_on(&from) else { return 0; };
-            let opp_color = if our_color == Color::White { Color::Black } else { Color::White };
+            let opp_color = our_color.invert();
 
             let captured_val = match self.piece_on(&to) {
                 Some(p) => heuristics::get_piece_value(p),
@@ -338,13 +333,19 @@ pub mod game_logic {
 
             loop {
                 if opp_turn {
-                    if opp_i >= opp_atts.len() { break; }
+                    if opp_i >= opp_atts.len() {
+                        break; 
+                    }
                     gain.push(cur_val);
-                    cur_val = opp_atts[opp_i]; opp_i += 1;
+                    cur_val = opp_atts[opp_i]; 
+                    opp_i += 1;
                 } else {
-                    if our_i >= our_atts.len() { break; }
+                    if our_i >= our_atts.len() { 
+                        break; 
+                    }
                     gain.push(cur_val);
-                    cur_val = our_atts[our_i]; our_i += 1;
+                    cur_val = our_atts[our_i]; 
+                    our_i += 1;
                 }
                 opp_turn = !opp_turn;
             }
@@ -443,8 +444,8 @@ pub mod game_logic {
             gain
         }
 
-        fn see_move(&self, m: &Self::Move) -> i32 {
-            self.see(m.get_source(), m.get_dest())
+        fn static_exchange_evaluation_move(&self, m: &Self::Move) -> i32 {
+            self.static_exchange_evaluation(m.get_source(), m.get_dest())
         }
     }
 
@@ -462,7 +463,7 @@ pub mod search {
     /// 기본 탐색 깊이. `find_best_move` 호출 시 이 값을 전달하면 됩니다.
     pub const SEARCH_DEPTH: u8 = 3;
     /// 재귀 폭발 방지용 하드 깊이 상한. (debug.html max="10", main.rs depth 검증도 이 값 기준)
-    pub const HARD_DEPTH: u8 = 15;
+    pub const HARD_DEPTH: u8 = 6;
     /// Quiescence search 최대 추가 깊이. 캡처 폭발 방지용 상한.
     pub const QUIESCENCE_DEPTH: u8 = 6;
     /// Delta pruning 안전 마진 (센티폰).
@@ -831,7 +832,7 @@ pub mod search {
         let mut loud_moves: Vec<_> = state
             .get_legal_moves()
             .into_iter()
-            .filter(|m| state.is_capture(m) && state.see_move(m) >= 0)
+            .filter(|m| state.is_capture(m) && state.static_exchange_evaluation_move(m) >= 0)
             .collect();
 
         loud_moves.sort_unstable_by(|a, b| {
@@ -1177,7 +1178,7 @@ pub mod search {
         let mut loud_moves: Vec<_> = state
             .get_legal_moves()
             .into_iter()
-            .filter(|m| state.is_capture(m) && state.see_move(m) >= 0)
+            .filter(|m| state.is_capture(m) && state.static_exchange_evaluation_move(m) >= 0)
             .collect();
         loud_moves.sort_unstable_by(|a, b| state.score_move(b).cmp(&state.score_move(a)));
 
